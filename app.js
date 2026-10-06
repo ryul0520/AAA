@@ -1,180 +1,40 @@
-const $ = (s) => document.querySelector(s);
+const KEY="local-interview-archive-v2";
+const $=s=>document.querySelector(s);
+const state=JSON.parse(localStorage.getItem(KEY)||'{"activities":[],"notes":[],"theme":"light"}');
+const pages={archive:"활동 아카이브",general:"공통 면접 질문",notes:"메모·회고",dashboard:"대시보드",favorites:"즐겨찾기",map:"Activity Map",random:"랜덤 면접",review:"Quick Review",export:"내보내기"};
+let page="archive", tab="card", search="", selectedCategory="전체";
 
-const input = $("#recordInput");
-const charCount = $("#charCount");
-const analysisSection = $("#analysisSection");
-const questionSection = $("#questionSection");
-const practiceSection = $("#practiceSection");
-const analysisBox = $("#analysis");
-const questionsBox = $("#questions");
-const category = $("#category");
-const answer = $("#answer");
-const currentQuestion = $("#currentQuestion");
-const timerEl = $("#timer");
-const savedAnswers = $("#savedAnswers");
+function save(){localStorage.setItem(KEY,JSON.stringify(state))}
+function esc(x=""){return x.replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]))}
+function id(){return Date.now().toString(36)+Math.random().toString(36).slice(2,7)}
+function init(){document.body.classList.toggle("dark",state.theme==="dark");render();document.querySelectorAll("#nav button").forEach(b=>b.onclick=()=>{page=b.dataset.page;document.querySelectorAll("#nav button").forEach(x=>x.classList.remove("active"));b.classList.add("active");render()});$("#themeBtn").onclick=()=>{state.theme=state.theme==="dark"?"light":"dark";save();document.body.classList.toggle("dark",state.theme==="dark")};$("#logout").onclick=()=>{if(confirm("저장된 활동·메모를 모두 삭제할까요?")){localStorage.removeItem(KEY);location.reload()}}}
+function render(){ $("#crumb").textContent=pages[page]; const c=$("#content"); if(page==="archive")archive(c); if(page==="general")general(c);if(page==="notes")notes(c);if(page==="dashboard")dashboard(c);if(page==="favorites")favorites(c);if(page==="map")mapPage(c);if(page==="random")random(c);if(page==="review")review(c);if(page==="export")exportPage(c); bindCommon() }
 
-let questions = [];
-let selectedQuestion = "";
-let timerId = null;
-let seconds = 0;
-
-input.addEventListener("input", () => {
-  charCount.textContent = `${input.value.length.toLocaleString()}자`;
-});
-
-$("#fileInput").addEventListener("change", async (e) => {
-  const file = e.target.files[0];
-  if (!file) return;
-  if (file.size > 10 * 1024 * 1024) {
-    alert("10MB 이하의 TXT 파일만 사용할 수 있습니다.");
-    return;
-  }
-  input.value = await file.text();
-  input.dispatchEvent(new Event("input"));
-});
-
-$("#analyzeBtn").addEventListener("click", analyze);
-category.addEventListener("change", renderQuestions);
-
-function cleanText(s) {
-  return s.replace(/\r/g,"")
-    .replace(/[ \t]+/g," ")
-    .replace(/\n{3,}/g,"\n\n")
-    .trim();
+function archive(c){
+c.innerHTML=`<div class="topline"><div><div class="eyebrow">THE ACTIVITY COLLECTION</div><h1 class="page-title">활동 아카이브</h1></div><button class="black" id="add">활동 등록</button></div>
+<div class="tabs"><button class="${tab==="card"?"active":""}" data-tab="card">카드</button><button class="${tab==="feed"?"active":""}" data-tab="feed">피드</button><button class="${tab==="board"?"active":""}" data-tab="board">게시판</button><button class="${tab==="gallery"?"active":""}" data-tab="gallery">갤러리</button></div>
+<div class="searchbar"><input id="search" placeholder="제목, 키워드, 기록 검색" value="${esc(search)}"></div>
+<div class="filters"><select id="cat"><option>전체</option>${["진로","탐구","과학","수학","정보","동아리","봉사","기타"].map(x=>`<option ${selectedCategory===x?"selected":""}>${x}</option>`).join("")}</select><button class="outline" id="sort">최신순 ↕</button></div>
+<div class="count">${filtered().length}개 기록</div>${renderCards(filtered())}`;
+c.querySelectorAll("[data-tab]").forEach(b=>b.onclick=()=>{tab=b.dataset.tab;render()});$("#add").onclick=()=>openModal();$("#search").oninput=e=>{search=e.target.value;render()};$("#cat").onchange=e=>{selectedCategory=e.target.value;render()};$("#sort").onclick=()=>{state.activities.reverse();save();render()};bindCards()
 }
-
-function splitSentences(text) {
-  return cleanText(text)
-    .split(/(?<=[.!?。！？])\s+|\n+/)
-    .map(x => x.replace(/^[-•·▪◦]\s*/,"").trim())
-    .filter(x => x.length >= 12);
-}
-
-function keywords(text) {
-  const stop = new Set(["그리고","또한","통해","대한","위해","사용","활동","과정","관련","대해","에서","으로","있는","하였다","했다","하는","것을","통한","대한"]);
-  const words = (text.match(/[가-힣A-Za-z][가-힣A-Za-z0-9·\-]{1,}/g) || [])
-    .map(x => x.toLowerCase())
-    .filter(x => x.length >= 2 && !stop.has(x));
-  const count = {};
-  words.forEach(w => count[w]=(count[w]||0)+1);
-  return Object.entries(count).sort((a,b)=>b[1]-a[1]).slice(0,12).map(x=>x[0]);
-}
-
-function findActivities(sentences) {
-  const patterns = ["탐구","연구","프로젝트","실험","분석","개발","제작","동아리","대회","발표","보고서","앱","모델","코딩","프로그램","R&E","멘토","봉사","수상"];
-  return sentences.filter(s => patterns.some(p=>s.includes(p))).slice(0,8);
-}
-
-function makeQuestions(text, sentences, keys) {
-  const qs = [];
-  const add = (category, text) => qs.push({category,text});
-
-  const acts = findActivities(sentences);
-  acts.slice(0,7).forEach(s => {
-    add("activity", `"${shorten(s,90)}"라는 활동에서 본인이 직접 맡은 역할과 가장 중요하게 한 일을 설명해 주세요.`);
-    add("concept", `"${shorten(s,70)}"에서 사용한 핵심 개념이나 원리를 면접관에게 설명해 주세요.`);
-    add("reflection", `이 활동에서 예상대로 되지 않았던 점은 무엇이었고, 어떻게 해결했나요?`);
-  });
-
-  keys.slice(0,6).forEach(k => {
-    add("follow", `"${k}"에 대해 더 깊이 탐구한다면 어떤 변수를 추가하거나 방법을 바꾸겠습니까?`);
-  });
-
-  add("career", "여러 활동 중 본인의 진로와 가장 밀접하게 연결되는 활동은 무엇이며, 그 이유는 무엇인가요?");
-  add("career", "고등학교에서의 탐구 경험이 대학에서 어떤 전공 공부로 이어질 수 있다고 생각하나요?");
-  add("reflection", "생기부에 기록된 활동을 다시 한다면 가장 먼저 개선하고 싶은 부분은 무엇인가요?");
-  add("activity", "생기부에 적힌 활동의 결과보다 그 과정에서 본인이 실제로 한 행동을 구체적으로 설명해 주세요.");
-
-  // 중복 제거
-  return [...new Map(qs.map(q=>[q.category+"|"+q.text,q])).values()].slice(0,40);
-}
-
-function shorten(s,n) {
-  return s.length > n ? s.slice(0,n-1)+"…" : s;
-}
-
-function analyze() {
-  const text = cleanText(input.value);
-  if (text.length < 30) {
-    alert("생기부 내용을 30자 이상 입력해 주세요.");
-    return;
-  }
-
-  const sentences = splitSentences(text);
-  const keys = keywords(text);
-  const acts = findActivities(sentences);
-
-  analysisBox.innerHTML = `
-    <div class="grid">
-      <div class="info"><h3>핵심 키워드</h3><p>${keys.length ? keys.map(escapeHtml).join(" · ") : "추출된 키워드가 없습니다."}</p></div>
-      <div class="info"><h3>문장 수</h3><p>${sentences.length}개의 문장을 분석했습니다.</p></div>
-      <div class="info"><h3>면접에서 확인할 활동</h3><ul>${(acts.length ? acts.slice(0,5) : ["탐구·활동 관련 문장을 찾지 못했습니다."]).map(x=>`<li>${escapeHtml(shorten(x,120))}</li>`).join("")}</ul></div>
-      <div class="info"><h3>추천 답변 구조</h3><p><b>상황 → 본인의 행동 → 이유/원리 → 결과 → 한계 → 배운 점 → 확장</b> 순서로 말하면 활동을 구체적으로 설명하기 좋습니다.</p></div>
-    </div>`;
-
-  questions = makeQuestions(text,sentences,keys);
-  analysisSection.classList.remove("hidden");
-  questionSection.classList.remove("hidden");
-  practiceSection.classList.remove("hidden");
-  renderQuestions();
-  window.scrollTo({top:analysisSection.offsetTop-15,behavior:"smooth"});
-}
-
-function renderQuestions() {
-  const selected = category.value;
-  const list = selected==="all" ? questions : questions.filter(q=>q.category===selected);
-  const names = {activity:"활동·과정",concept:"개념·원리",reflection:"한계·배운 점",follow:"꼬리질문",career:"진로·전공"};
-  questionsBox.innerHTML = list.map((q,i)=>`
-    <div class="q">
-      <div class="q-top">
-        <span class="badge">${names[q.category]}</span>
-        <div class="q-text">${escapeHtml(q.text)}</div>
-        <button onclick='selectQuestion(${JSON.stringify(q.text)})'>연습</button>
-      </div>
-    </div>`).join("");
-}
-
-window.selectQuestion = function(q) {
-  selectedQuestion = q;
-  currentQuestion.textContent = q;
-  answer.focus();
-  window.scrollTo({top:practiceSection.offsetTop-15,behavior:"smooth"});
-};
-
-$("#saveAnswerBtn").addEventListener("click",()=>{
-  if(!selectedQuestion){alert("먼저 연습할 질문을 선택하세요.");return;}
-  if(!answer.value.trim()){alert("답변을 입력하세요.");return;}
-  const box=document.createElement("div");
-  box.className="saved";
-  box.innerHTML=`<b>Q.</b> ${escapeHtml(selectedQuestion)}<br><br><b>A.</b> ${escapeHtml(answer.value.trim())}`;
-  savedAnswers.prepend(box);
-  answer.value="";
-});
-
-$("#timerBtn").addEventListener("click",()=>{
-  if(timerId){
-    clearInterval(timerId); timerId=null; $("#timerBtn").textContent="스톱워치 시작";
-  } else {
-    timerId=setInterval(()=>{
-      seconds++;
-      const m=String(Math.floor(seconds/60)).padStart(2,"0");
-      const s=String(seconds%60).padStart(2,"0");
-      timerEl.textContent=`${m}:${s}`;
-    },1000);
-    $("#timerBtn").textContent="스톱워치 정지";
-  }
-});
-
-$("#clearBtn").addEventListener("click",()=>{
-  if(!confirm("입력한 내용과 연습 기록을 모두 지울까요?")) return;
-  input.value=""; charCount.textContent="0자"; analysisSection.classList.add("hidden");
-  questionSection.classList.add("hidden"); practiceSection.classList.add("hidden");
-  questions=[]; savedAnswers.innerHTML=""; answer.value="";
-  selectedQuestion=""; currentQuestion.textContent="질문을 선택하세요.";
-  if(timerId){clearInterval(timerId);timerId=null;}
-  seconds=0;timerEl.textContent="00:00";$("#timerBtn").textContent="스톱워치 시작";
-});
-
-function escapeHtml(s){
-  return s.replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[m]));
-}
+function filtered(){return state.activities.filter(a=>(selectedCategory==="전체"||a.category===selectedCategory)&&(!search||JSON.stringify(a).toLowerCase().includes(search.toLowerCase())))}
+function renderCards(arr){if(!arr.length)return `<div class="empty">첫 활동을 등록해 주세요.<br><br><button class="black" onclick="openModal()">활동 등록</button></div>`;return `<div class="grid">${arr.map(a=>`<article class="card"><div class="card-top"><span class="tag">${esc(a.category)}</span><button class="star" data-star="${a.id}">${a.favorite?"★":"☆"}</button></div><h3>${esc(a.title)}</h3><p>${esc(a.desc)}</p><div class="meta">${esc(a.period||"")} · ${esc(a.role||"")}</div><div class="card-actions"><button class="mini" data-edit="${a.id}">편집</button><button class="mini" data-view="${a.id}">상세·질문</button></div></article>`).join("")}</div>`}
+function bindCards(){document.querySelectorAll("[data-star]").forEach(b=>b.onclick=()=>{let a=state.activities.find(x=>x.id===b.dataset.star);a.favorite=!a.favorite;save();render()});document.querySelectorAll("[data-edit]").forEach(b=>b.onclick=()=>openModal(b.dataset.edit));document.querySelectorAll("[data-view]").forEach(b=>b.onclick=()=>activityDetail(b.dataset.view))}
+function activityDetail(i){let a=state.activities.find(x=>x.id===i);let qs=[`이 활동에서 본인이 직접 맡은 역할은 무엇인가요?`,`왜 이 방법을 선택했나요?`,`사용한 핵심 개념이나 원리를 설명해 보세요.`,`가장 어려웠던 점과 해결 방법은?`,`결과의 한계는 무엇이며 어떻게 개선하겠습니까?`,`이 경험이 지원 전공과 어떻게 연결되나요?`];alert(`${a.title}\n\n[면접 질문]\n\n${qs.join("\n")}`)}
+function general(c){let qs=["1분 자기소개를 해보세요.","우리 대학/학과에 지원한 이유는 무엇인가요?","고등학교에서 가장 깊이 탐구한 주제는 무엇인가요?","가장 어려웠던 활동과 그것을 해결한 과정은?","본인의 강점과 개선해야 할 점을 말해보세요.","실패했던 경험과 그 경험에서 배운 점은?","팀 활동에서 의견 충돌이 있었다면 어떻게 해결했나요?","전공과 관련해 최근 관심 있게 본 과학기술은?","생기부의 활동 중 다시 한다면 바꾸고 싶은 것은?","대학에 진학한 뒤 어떤 연구를 해보고 싶나요?"];c.innerHTML=`<div class="topline"><div><div class="eyebrow">INTERVIEW QUESTION BANK</div><h1 class="page-title">공통 면접 질문</h1></div></div><div class="panel">${qs.map((q,i)=>`<div class="question"><span class="qcat">Q${i+1}</span><b>${q}</b><button class="mini" style="float:right" onclick="practice('${esc(q).replace(/'/g,"&#39;")}')">연습</button></div>`).join("")}</div>`}
+function notes(c){c.innerHTML=`<div class="topline"><div><div class="eyebrow">REFLECTION LOG</div><h1 class="page-title">메모·회고</h1></div><button class="black" id="newNote">새 메모</button></div><div class="note-grid">${state.notes.map(n=>`<div class="note"><small>${esc(n.date)}</small><h3>${esc(n.title)}</h3><p>${esc(n.body)}</p></div>`).join("")}${!state.notes.length?'<div class="empty">아직 회고가 없습니다.</div>':""}</div>`;$("#newNote").onclick=()=>{let t=prompt("메모 제목");if(!t)return;let b=prompt("메모 내용")||"";state.notes.unshift({title:t,body:b,date:new Date().toLocaleDateString("ko-KR")});save();render()}}
+function dashboard(c){let total=state.activities.length, fav=state.activities.filter(a=>a.favorite).length, cats=new Set(state.activities.map(a=>a.category)).size;let words=state.activities.flatMap(a=>(a.tags||[]));let top=[...new Set(words)].slice(0,10);c.innerHTML=`<div class="eyebrow">OVERVIEW</div><h1 class="page-title">대시보드</h1><div class="stats"><div class="stat"><span>전체 활동</span><b>${total}</b></div><div class="stat"><span>즐겨찾기</span><b>${fav}</b></div><div class="stat"><span>활동 분류</span><b>${cats}</b></div><div class="stat"><span>회고</span><b>${state.notes.length}</b></div></div><div class="panel"><h3>최근 활동</h3>${state.activities.slice(0,5).map(a=>`<div class="question"><b>${esc(a.title)}</b><span class="qcat">${esc(a.category)} · ${esc(a.period)}</span></div>`).join("")||"등록된 활동이 없습니다."}</div><div class="panel"><h3>사용한 키워드</h3><p>${top.map(esc).join(" · ")||"아직 없습니다."}</p></div>`}
+function favorites(c){c.innerHTML=`<div class="eyebrow">SAVED ACTIVITIES</div><h1 class="page-title">즐겨찾기</h1>${renderCards(state.activities.filter(a=>a.favorite))}`;bindCards()}
+function mapPage(c){let cats=["진로","탐구","과학","수학","정보","동아리","봉사","기타"];c.innerHTML=`<div class="eyebrow">ACTIVITY CONNECTIONS</div><h1 class="page-title">Activity Map</h1><p style="color:var(--muted)">활동을 분류별로 연결해 보고, 어떤 영역에 경험이 집중되어 있는지 확인합니다.</p><div class="map">${cats.map(x=>{let n=state.activities.filter(a=>a.category===x).length;return `<div class="node"><b>${n}</b><small>${x}</small></div>`}).join("")}</div>`}
+function random(c){let pool=[...state.activities.map(a=>`[${a.title}] ${a.desc}`),...["왜 이 활동을 했나요?","가장 중요한 개념은 무엇인가요?","한계와 개선점은 무엇인가요?","전공과 어떤 관련이 있나요?"]];let q=pool[Math.floor(Math.random()*pool.length)]||"활동을 등록하면 랜덤 면접이 시작됩니다.";c.innerHTML=`<div class="eyebrow">RANDOM INTERVIEW</div><h1 class="page-title">랜덤 면접</h1><div class="panel" style="min-height:260px"><h2>오늘의 질문</h2><p style="font-size:25px;line-height:1.7">${esc(q)}</p><button class="black" id="again">다시 뽑기</button><button class="outline" id="speak" style="margin-left:8px">말하기 시작</button><span id="timer" style="margin-left:15px;font-weight:700">00:00</span></div>`;$("#again").onclick=()=>random(c);let timer=null,sec=0;$("#speak").onclick=()=>{if(timer){clearInterval(timer);timer=null;$("#speak").textContent="말하기 시작"}else{sec=0;timer=setInterval(()=>{sec++;$("#timer").textContent=`${String(Math.floor(sec/60)).padStart(2,"0")}:${String(sec%60).padStart(2,"0")}`},1000);$("#speak").textContent="정지"}}}
+function review(c){let n=state.activities.length;let done=Math.min(100,n?Math.round(n/10*100):0);c.innerHTML=`<div class="eyebrow">QUICK REVIEW</div><h1 class="page-title">Quick Review</h1><div class="review"><div class="reviewbox"><h3>활동 기억하기</h3><p>등록한 활동 ${n}개를 빠르게 복습하세요.</p><div class="progress"><i style="width:${done}%"></i></div><b>${done}%</b></div><div class="reviewbox"><h3>면접 답변 구조</h3><p>상황 → 행동 → 이유/원리 → 결과 → 한계 → 배운 점 → 확장</p><button class="black" onclick="page='general';document.querySelector('[data-page=general]').click()">질문 은행 보기</button></div></div><div class="panel"><h3>최근 5개 활동</h3>${state.activities.slice(0,5).map(a=>`<div class="question"><b>${esc(a.title)}</b><br><span style="color:var(--muted)">${esc(a.learn||"배운 점을 기록하지 않았습니다.")}</span></div>`).join("")||"활동을 등록하세요."}</div>`}
+function exportPage(c){c.innerHTML=`<div class="eyebrow">DATA PORTABILITY</div><h1 class="page-title">내보내기</h1><div class="panel"><h3>백업 파일</h3><p>활동, 메모, 설정을 JSON 파일로 저장합니다. 이 파일에는 생기부 등 직접 입력한 내용이 포함될 수 있으므로 다른 사람에게 공유하지 마세요.</p><button class="black" id="download">JSON 백업 다운로드</button><hr style="margin:25px 0;border:0;border-top:1px solid var(--line)"><h3>복원</h3><input id="restore" type="file" accept=".json"><p style="color:var(--muted)">기존 데이터가 복원 파일의 데이터로 대체됩니다.</p></div>`;$("#download").onclick=()=>{let blob=new Blob([JSON.stringify(state,null,2)],{type:"application/json"});let a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download="interview-backup.json";a.click();URL.revokeObjectURL(a.href)};$("#restore").onchange=async e=>{try{let x=JSON.parse(await e.target.files[0].text());if(!Array.isArray(x.activities))throw 0;localStorage.setItem(KEY,JSON.stringify(x));alert("복원되었습니다.");location.reload()}catch{alert("올바른 백업 파일이 아닙니다.")}}}
+function openModal(edit=null){$("#modal").classList.remove("hidden");let a=edit&&state.activities.find(x=>x.id===edit);$("#modalTitle").textContent=a?"활동 편집":"활동 등록";$("#editId").value=a?.id||"";$("#fTitle").value=a?.title||"";$("#fCategory").value=a?.category||"진로";$("#fPeriod").value=a?.period||"";$("#fDesc").value=a?.desc||"";$("#fRole").value=a?.role||"";$("#fTags").value=(a?.tags||[]).join(", ");$("#fLearn").value=a?.learn||""}
+function closeModal(){$("#modal").classList.add("hidden")}
+$("#closeModal").onclick=closeModal;$("#cancelModal").onclick=closeModal;$("#activityForm").onsubmit=e=>{e.preventDefault();let id=$("#editId").value||idGen();let obj={id,title:$("#fTitle").value,category:$("#fCategory").value,period:$("#fPeriod").value,desc:$("#fDesc").value,role:$("#fRole").value,tags:$("#fTags").value.split(",").map(x=>x.trim()).filter(Boolean),learn:$("#fLearn").value,favorite:false};let old=state.activities.find(x=>x.id===id);if(old)obj.favorite=old.favorite;let ix=state.activities.findIndex(x=>x.id===id);ix>=0?state.activities[ix]=obj:state.activities.unshift(obj);save();closeModal();render()}
+function idGen(){return Date.now().toString(36)+Math.random().toString(36).slice(2)}
+function bindCommon(){}
+window.openModal=openModal;
+window.practice=q=>{navigator.clipboard?.writeText(q);alert("질문을 복사했습니다. 랜덤 면접/공통 질문에서 답변을 연습할 수 있습니다.")};
+init();
