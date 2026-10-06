@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>생기부 기반 면접 연습</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="top">
+    <div>
+      <h1>생기부 기반 면접 연습</h1>
+      <p>생기부는 서버로 전송하지 않고 이 브라우저에서만 처리합니다.</p>
+    </div>
+    <button id="clearBtn" class="ghost">전체 초기화</button>
+  </header>
+
+  <main class="wrap">
+    <section class="privacy">
+      <strong>개인정보 보호</strong>
+      <span>이 페이지는 입력한 생기부를 외부 서버로 업로드하지 않습니다. 새로고침하면 입력 내용은 사라집니다.</span>
+    </section>
+
+    <section class="card">
+      <div class="section-title">
+        <div>
+          <h2>1. 생기부 입력</h2>
+          <p>PDF에서 복사한 텍스트나 TXT 파일을 넣어주세요.</p>
+        </div>
+        <label class="file-btn">
+          TXT 불러오기
+          <input id="fileInput" type="file" accept=".txt,.md">
+        </label>
+      </div>
+      <textarea id="recordInput" placeholder="생기부 내용을 여기에 붙여넣으세요.
+
+예:
+- 과학 탐구 활동
+- 동아리 활동
+- 진로 활동
+- 세부능력특기사항
+- 수상 및 독서 활동"></textarea>
+      <div class="row">
+        <span id="charCount">0자</span>
+        <button id="analyzeBtn" class="primary">내용 분석하기</button>
+      </div>
+    </section>
+
+    <section id="analysisSection" class="card hidden">
+      <div class="section-title">
+        <div>
+          <h2>2. 생기부 핵심 내용</h2>
+          <p>입력한 내용을 바탕으로 면접에서 확인하기 좋은 항목을 정리합니다.</p>
+        </div>
+      </div>
+      <div id="analysis"></div>
+    </section>
+
+    <section id="questionSection" class="card hidden">
+      <div class="section-title">
+        <div>
+          <h2>3. 예상 면접 질문</h2>
+          <p>질문을 눌러 답변을 직접 말해보세요.</p>
+        </div>
+        <select id="category">
+          <option value="all">전체 질문</option>
+          <option value="activity">활동·과정</option>
+          <option value="concept">개념·원리</option>
+          <option value="reflection">한계·배운 점</option>
+          <option value="follow">꼬리질문</option>
+          <option value="career">진로·전공</option>
+        </select>
+      </div>
+      <div id="questions"></div>
+    </section>
+
+    <section id="practiceSection" class="card hidden">
+      <div class="section-title">
+        <div>
+          <h2>4. 답변 연습</h2>
+          <p id="currentQuestion">질문을 선택하세요.</p>
+        </div>
+      </div>
+      <textarea id="answer" placeholder="실제 면접이라고 생각하고 답변을 적어보세요."></textarea>
+      <div class="row">
+        <button id="timerBtn" class="secondary">스톱워치 시작</button>
+        <span id="timer">00:00</span>
+        <button id="saveAnswerBtn" class="primary">답변 저장</button>
+      </div>
+      <div id="savedAnswers"></div>
+    </section>
+  </main>
+
+  <footer>
+    <span>Local Record Interview · GitHub Pages용</span>
+  </footer>
+  <script src="app.js"></script>
+</body>
+</html>
